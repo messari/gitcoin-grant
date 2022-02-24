@@ -1,0 +1,293 @@
+enum Network {
+  AVALANCHE
+  AURORA
+  BSC
+  CELO
+  CRONOS
+  ETHEREUM
+  FANTOM
+  HARMONY
+  MOONBEAM
+  MOONRIVER
+  OPTIMISM
+  POLYGON
+  XDAI
+}
+
+enum ProtocolType {
+  EXCHANGE
+  LENDING
+  YIELD
+  GENERIC
+}
+
+enum TokenType {
+  ERC20
+  ERC721
+  ERC1155
+}
+
+type Token @entity {
+  " Smart contract address of the market "
+  id: ID!
+
+  " Mirrored from the smart contract "
+  name: String!
+  symbol: String!
+  decimals: BigInt!
+
+  " Token type "
+  type: TokenType!
+}
+
+#############################
+##### Protocol Metadata #####
+#############################
+
+type Protocol @entity {
+  " UUID "
+  id: ID!
+
+  " Name of the protocol, including version. e.g. Uniswap v3 "
+  name: String!
+
+  " Slug of protocol, including version. e.g. uniswap-v3 "
+  slug: String!
+
+  network: Network!
+
+  type: ProtocolType!
+
+  " All vaults that belong to this protocol "
+  vaults: [Vault!]! @derivedFrom(field: "protocol")
+
+  " All farms that belong to this protocol "
+  farms: [Farm!]! @derivedFrom(field: "protocol")
+}
+
+###############################
+##### Protocol Timeseries #####
+###############################
+
+type UsageMetricsDailySnapshot @entity {
+  " ID is # of days since Unix epoch time "
+  id: ID!
+
+  protocol: Protocol!
+
+  " # of unique daily active users "
+  activeUsers: Int!
+
+  " # of total/cumulative unique users "
+  totalUniqueUsers: Int!
+
+  dailyTransactionCount: Int!
+
+  blockNumber: BigInt!
+
+  timestamp: BigInt!
+}
+
+type FinancialsDailySnapshot @entity {
+  " ID is # of days since Unix epoch time "
+  id: ID!
+
+  protocol: Protocol!
+
+  totalValueLockedUSD: BigDecimal!
+
+  " Revenue accrued by the supply side (e.g. liquidity providers). e.g. 2.5% of the swap fee in Sushiswap "
+  supplySideRevenueUSD: BigDecimal!
+
+  " Revenue accrued by the protocol. e.g. 0.5% of the swap fee in Sushiswap "
+  protocolSideRevenueUSD: BigDecimal!
+
+  " Fees paid by the users. e.g. 3.0% of swap fee in Sushiswap "
+  feesUSD: BigDecimal!
+  
+  blockNumber: BigInt!
+
+  timestamp: BigInt!
+}
+
+################################
+##### Vault-Level Metadata #####
+################################
+
+type Vault @entity {
+  " Smart contract address of the vault "
+  id: ID!
+
+  protocol: Protocol!
+
+  # Generally protocols accept one or multiple tokens and mint tokens to the depositor to track ownership
+  # Some protocols reward DAO tokens or other incentivisation tokens to holders of LP tokens
+  # Some protocols don't mint any tokens to track ownership, in that case outputToken is null 
+  # and inputToken balances are used to calculate returns
+
+  " Tokens that need to be deposited to take a position in protocol. e.g. WETH and USDC to deposit into the WETH-USDC pool "
+  inputTokens: [Token!]!
+
+  " Token that is minted to track ownership of position in protocol "
+  outputToken: Token
+
+  " Aditional tokens that are given as reward for position in a protocol "
+  rewardTokens: [Token!]
+
+  ##### Quantitative Data #####
+
+  totalValueLockedUSD: BigDecimal!
+
+  " Total balance of this market contract of all input tokens "
+  inputTokenTotalBalances: [BigInt!]!
+
+  " Total supply of output token "
+  outputTokenTotalSupply: BigInt!
+
+  " Price per share of output token in USD "
+  outputTokenPriceUSD: BigDecimal!
+
+  blockNumber: BigInt!
+
+  timestamp: BigInt!
+
+  ##### Vault-Specific #####
+
+  name: String
+
+  symbol: String
+
+  depositLimit: BigInt!
+
+  " One-time fee charged by the protocol during deposit, in percentages of the deposit token "
+  depositFee: BigDecimal!
+
+  " One-time fee charged by the protocol during withdrawal, in percentages of the withdrawal token "
+  withdrawalFee: BigDecimal!
+
+  " Fees charged by the protocol during harvest, in percentages of the interest accrued "
+  performanceFee: BigDecimal!
+
+  " Fees charged by the protocol on a periodic basis, in percentages of the total principal "
+  managementFee: BigDecimal!
+
+  " Vault snapshots "
+  snapshots: [VaultDailySnapshot!]! @derivedFrom(field: "vault")
+}
+
+type VaultDailySnapshot @entity {
+  " { Smart contract address of the vault }-{ # of days since Unix epoch time } "
+  id: ID!
+
+  " The protocol this snapshot belongs to "
+  protocol: Protocol!
+
+  " The vault this snapshot belongs to "
+  vault: Vault!
+
+  totalValueLockedUSD: BigDecimal!
+
+  " Amount of input tokens in the pool. The ordering should be the same as the pool's `inputTokens` field. "
+  inputTokenBalances: BigInt!
+
+  " Total supply of output token "
+  outputTokenTotalSupply: BigInt!
+
+  " Price per share of output token in USD "
+  outputTokenPriceUSD: BigDecimal!
+
+  " Total amount of reward token emissions in a day, in token's native amount "
+  rewardTokenEmissionsNative: [BigDecimal!]
+
+  " Total amount of reward token emissions in a day, normalized to USD "
+  rewardTokenEmissionsUSD: [BigDecimal!]
+
+  blockNumber: BigInt!
+
+  timestamp: BigInt!
+}
+
+##################################
+##### Transaction-Level Data #####
+##################################
+
+interface Transaction {
+  " { Transaction hash }-{ Log index }"
+  id: ID!
+
+  " Transaction hash "
+  hash: String!
+
+  " Transaction log index "
+  logIndex: Int!
+
+  " Address that received tokens "
+  to: String!
+
+  " Address that sent tokens "
+  from: String!
+
+  blockNumber: BigInt!
+
+  timestamp: BigInt!
+}
+
+type Deposit implements Transaction @entity {
+  " { Transaction hash }-{ Log index }"
+  id: ID!
+
+  " Transaction hash "
+  hash: String!
+
+  " Transaction log index "
+  logIndex: Int!
+
+  " Market that tokens are deposited into "
+  to: String!
+
+  " Address that deposited tokens "
+  from: String!
+
+  blockNumber: BigInt!
+
+  timestamp: BigInt!
+
+  " Token deposited "
+  asset: Token!
+
+  " Amount of token deposited in native units "
+  amount: BigDecimal!
+
+  " Amount of token deposited in USD "
+  amountUSD: BigDecimal
+}
+
+type Withdraw implements Transaction @entity {
+  " { Transaction hash }-{ Log index }"
+  id: ID!
+
+  " Transaction hash "
+  hash: String!
+
+  " Transaction log index "
+  logIndex: Int!
+
+  " Address that received tokens "
+  to: String!
+
+  " Market that tokens are withdrawn from "
+  from: String!
+
+  blockNumber: BigInt!
+
+  timestamp: BigInt!
+
+  " Token withdrawn "
+  asset: Token!
+
+  " Amount of token withdrawn in native units "
+  amount: BigDecimal!
+
+  " Amount of token withdrawn in USD "
+  amountUSD: BigDecimal
+}
