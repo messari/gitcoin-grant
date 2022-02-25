@@ -18,13 +18,9 @@ enum ProtocolType {
   EXCHANGE
   LENDING
   YIELD
+  BRIDGE
   GENERIC
-}
-
-enum TokenType {
-  ERC20
-  ERC721
-  ERC1155
+  # Will add more
 }
 
 type Token @entity {
@@ -35,16 +31,30 @@ type Token @entity {
   name: String!
   symbol: String!
   decimals: BigInt!
+}
 
-  " Token type "
-  type: TokenType!
+enum RewardTokenType {
+  DEPOSIT
+  BORROW
+}
+
+type RewardToken @entity {
+  " Smart contract address of the market "
+  id: ID!
+
+  " Mirrored from the smart contract "
+  name: String!
+  symbol: String!
+  decimals: BigInt!
+
+  type: RewardTokenType
 }
 
 #############################
 ##### Protocol Metadata #####
 #############################
 
-type Protocol @entity {
+interface Protocol {
   " UUID "
   id: ID!
 
@@ -58,11 +68,33 @@ type Protocol @entity {
 
   type: ProtocolType!
 
-  " All vaults that belong to this protocol "
-  vaults: [Vault!]! @derivedFrom(field: "protocol")
+  usageMetrics: [UsageMetricsDailySnapshot]! @derivedFrom(field: "protocol")
 
-  " All farms that belong to this protocol "
-  farms: [Farm!]! @derivedFrom(field: "protocol")
+  financialMetrics: [FinancialsDailySnapshot]! @derivedFrom(field: "protocol")
+}
+
+type YieldAggregator implements Protocol @entity {
+  " UUID "
+  id: ID!
+
+  " Name of the protocol, including version. e.g. Yearn v3 "
+  name: String!
+
+  " Slug of protocol, including version. e.g. yearn-v3 "
+  slug: String!
+
+  network: Network!
+
+  type: ProtocolType!
+
+  usageMetrics: [UsageMetricsDailySnapshot]! @derivedFrom(field: "protocol")
+
+  financialMetrics: [FinancialsDailySnapshot]! @derivedFrom(field: "protocol")
+
+  ##### Yield-Specific #####
+
+  " All vaults that belong to this protocol "
+  vaults: [Vaults!]! @derivedFrom(field: "protocol")
 }
 
 ###############################
@@ -83,8 +115,10 @@ type UsageMetricsDailySnapshot @entity {
 
   dailyTransactionCount: Int!
 
+  " Block number of this snapshot "
   blockNumber: BigInt!
 
+  " Timestamp of this snapshot "
   timestamp: BigInt!
 }
 
@@ -96,25 +130,147 @@ type FinancialsDailySnapshot @entity {
 
   totalValueLockedUSD: BigDecimal!
 
-  " Revenue accrued by the supply side (e.g. liquidity providers). e.g. 2.5% of the swap fee in Sushiswap "
+  " Protocol treasury should be composed of non-productive protocol assets. This may be an insurance fund, operational budget, or any other assets not directly generating revenue "
+  protocolTreasuryUSD: BigDecimal
+
+  " Only relevant for protocols with PCV. "
+  protocolControlledValueUSD: BigDecimal
+
+  " Total volume in USD "
+  totalVolumeUSD: BigDecimal!
+
+  " Revenue claimed by suppliers to the protocol. LPs on DEXs (e.g. 2.5% of the swap fee in Sushiswap). Depositors on Lending Protocols. NFT sellers on OpenSea. "
   supplySideRevenueUSD: BigDecimal!
 
-  " Revenue accrued by the protocol. e.g. 0.5% of the swap fee in Sushiswap "
+  " Gross revenue for the protocol (revenue claimed by protocol). Examples: AMM protocol fee (Sushi’s 0.5%). OpenSea 10% sell fee. "
   protocolSideRevenueUSD: BigDecimal!
 
   " Fees paid by the users. e.g. 3.0% of swap fee in Sushiswap "
   feesUSD: BigDecimal!
   
+  " Block number of this snapshot "
   blockNumber: BigInt!
 
+  " Timestamp of this snapshot "
   timestamp: BigInt!
 }
 
-################################
-##### Vault-Level Metadata #####
-################################
+###############################
+##### Pool-Level Metadata #####
+###############################
 
-type Vault @entity {
+# A pool can be:
+# - A liquidity pool in the case of a DEX AMM
+# - A market in the case of a lending protocol
+# - A vault in the case of a yield aggregator
+interface Pool {
+  " Smart contract address of the pool "
+  id: ID!
+
+  " The protocol this pool belongs to "
+  protocol: Protocol!
+
+  # Generally protocols accept one or multiple tokens and mint tokens to the depositor to track ownership
+  # Some protocols reward DAO tokens or other incentivisation tokens to holders of LP tokens
+  # Some protocols don't mint any tokens to track ownership, in that case outputToken is null 
+  # and inputToken balances are used to calculate returns
+
+  " Tokens that need to be deposited to take a position in protocol. e.g. WETH and USDC to deposit into the WETH-USDC pool. Array to account for multi-asset pools like Curve and Balancer "
+  inputTokens: [Token!]!
+
+  " Token that is minted to track ownership of position in protocol "
+  outputToken: Token
+
+  " Aditional tokens that are given as reward for position in a protocol "
+  rewardTokens: [RewardToken!]
+
+  ##### Quantitative Data #####
+
+  totalValueLockedUSD: BigDecimal!
+
+  " Total volume in USD "
+  totalVolumeUSD: BigDecimal!
+
+  " Amount of input tokens in the pool. The ordering should be the same as the pool's `inputTokens` field. "
+  inputTokenBalances: [BigDecimal!]!
+
+  " Total supply of output token "
+  outputTokenSupply: BigDecimal!
+
+  " Price per share of output token in USD "
+  outputTokenPriceUSD: BigDecimal!
+
+  " Creation timestamp "
+  createdTimestamp: BigInt!
+
+  " Creation block number "
+  createdBlockNumber: BigInt!
+
+  " Pool snapshots "
+  snapshots: [PoolDailySnapshot!]! @derivedFrom(field: "pool")
+}
+
+#################################
+##### Pool-Level Timeseries #####
+#################################
+
+interface PoolDailySnapshot {
+  " { Smart contract address of the pool }-{ # of days since Unix epoch time } "
+  id: ID!
+
+  " The protocol this snapshot belongs to "
+  protocol: Protocol!
+
+  " The pool this snapshot belongs to "
+  pool: Pool!
+
+  totalValueLockedUSD: BigDecimal!
+
+  " Total volume in USD "
+  totalVolumeUSD: BigDecimal!
+
+  " Amount of input tokens in the pool. The ordering should be the same as the pool's `inputTokens` field. "
+  inputTokenBalances: BigDecimal!
+
+  " Total supply of output token "
+  outputTokenSupply: BigDecimal!
+
+  " Price per share of output token in USD "
+  outputTokenPriceUSD: BigDecimal!
+
+  " Total amount of reward token emissions in a day, in token's native amount "
+  rewardTokenEmissionsAmount: [BigDecimal!]
+
+  " Total amount of reward token emissions in a day, normalized to USD "
+  rewardTokenEmissionsUSD: [BigDecimal!]
+
+  " Block number of this snapshot "
+  blockNumber: BigInt!
+
+  " Timestamp of this snapshot "
+  timestamp: BigInt!
+}
+
+enum VaultFeeType {
+  " One-time fee charged by the protocol during deposit, in percentages of the deposit token "
+  DEPOSIT_FEE
+
+  " One-time fee charged by the protocol during withdrawal, in percentages of the withdrawal token "
+  WITHDRAWAL_FEE
+
+  " Fees charged by the protocol during harvest, in percentages of the interest accrued "
+  PERFORMANCE_FEE
+
+  " Fees charged by the protocol on a periodic basis, in percentages of the total principal "
+  MANAGEMENT_FEE
+}
+
+type VaultFee @entity {
+  feePercentage: BigDecimal!
+  feeType: VaultFeeType!
+}
+
+type Vault implements Pool @entity {
   " Smart contract address of the vault "
   id: ID!
 
@@ -132,26 +288,28 @@ type Vault @entity {
   outputToken: Token
 
   " Aditional tokens that are given as reward for position in a protocol "
-  rewardTokens: [Token!]
+  rewardTokens: [RewardToken!]
 
   ##### Quantitative Data #####
 
   totalValueLockedUSD: BigDecimal!
 
-  " Total balance of this market contract of all input tokens "
-  inputTokenTotalBalances: [BigInt!]!
+  " Amount of input tokens in the vault. The ordering should be the same as the vault's `inputTokens` field. "
+  inputTokenBalances: [BigDecimal!]!
 
   " Total supply of output token "
-  outputTokenTotalSupply: BigInt!
+  outputTokenSupply: BigDecimal!
 
   " Price per share of output token in USD "
   outputTokenPriceUSD: BigDecimal!
 
-  blockNumber: BigInt!
+  " Creation timestamp "
+  createdTimestamp: BigInt!
 
-  timestamp: BigInt!
+  " Creation block number "
+  createdBlockNumber: BigInt!
 
-  ##### Vault-Specific #####
+  ##### Yield-Specific #####
 
   name: String
 
@@ -159,23 +317,13 @@ type Vault @entity {
 
   depositLimit: BigInt!
 
-  " One-time fee charged by the protocol during deposit, in percentages of the deposit token "
-  depositFee: BigDecimal!
-
-  " One-time fee charged by the protocol during withdrawal, in percentages of the withdrawal token "
-  withdrawalFee: BigDecimal!
-
-  " Fees charged by the protocol during harvest, in percentages of the interest accrued "
-  performanceFee: BigDecimal!
-
-  " Fees charged by the protocol on a periodic basis, in percentages of the total principal "
-  managementFee: BigDecimal!
+  fees: [VaultFee]!
 
   " Vault snapshots "
   snapshots: [VaultDailySnapshot!]! @derivedFrom(field: "vault")
 }
 
-type VaultDailySnapshot @entity {
+type VaultDailySnapshot implements PoolDailySnapshot @entity {
   " { Smart contract address of the vault }-{ # of days since Unix epoch time } "
   id: ID!
 
@@ -187,23 +335,28 @@ type VaultDailySnapshot @entity {
 
   totalValueLockedUSD: BigDecimal!
 
+  " Total deposit volume in USD "
+  totalVolumeUSD: BigDecimal!
+
   " Amount of input tokens in the pool. The ordering should be the same as the pool's `inputTokens` field. "
-  inputTokenBalances: BigInt!
+  inputTokenBalances: BigDecimal!
 
   " Total supply of output token "
-  outputTokenTotalSupply: BigInt!
+  outputTokenSupply: BigDecimal!
 
   " Price per share of output token in USD "
   outputTokenPriceUSD: BigDecimal!
 
   " Total amount of reward token emissions in a day, in token's native amount "
-  rewardTokenEmissionsNative: [BigDecimal!]
+  rewardTokenEmissionsAmount: [BigDecimal!]
 
   " Total amount of reward token emissions in a day, normalized to USD "
   rewardTokenEmissionsUSD: [BigDecimal!]
-
+  
+  " Block number of this snapshot "
   blockNumber: BigInt!
 
+  " Timestamp of this snapshot "
   timestamp: BigInt!
 }
 
@@ -212,7 +365,7 @@ type VaultDailySnapshot @entity {
 ##################################
 
 interface Transaction {
-  " { Transaction hash }-{ Log index }"
+  " { Transaction hash }-{ Log index } "
   id: ID!
 
   " Transaction hash "
@@ -220,6 +373,9 @@ interface Transaction {
 
   " Transaction log index "
   logIndex: Int!
+
+  " The protocol this transaction belongs to "
+  protocol: Protocol!
 
   " Address that received tokens "
   to: String!
@@ -233,7 +389,7 @@ interface Transaction {
 }
 
 type Deposit implements Transaction @entity {
-  " { Transaction hash }-{ Log index }"
+  " { Transaction hash }-{ Log index } "
   id: ID!
 
   " Transaction hash "
@@ -241,6 +397,9 @@ type Deposit implements Transaction @entity {
 
   " Transaction log index "
   logIndex: Int!
+
+  " The protocol this transaction belongs to "
+  protocol: Protocol!
 
   " Market that tokens are deposited into "
   to: String!
@@ -259,7 +418,7 @@ type Deposit implements Transaction @entity {
   amount: BigDecimal!
 
   " Amount of token deposited in USD "
-  amountUSD: BigDecimal
+  amountUSD: BigDecimal!
 }
 
 type Withdraw implements Transaction @entity {
@@ -271,6 +430,9 @@ type Withdraw implements Transaction @entity {
 
   " Transaction log index "
   logIndex: Int!
+
+  " The protocol this transaction belongs to "
+  protocol: Protocol!
 
   " Address that received tokens "
   to: String!
@@ -289,5 +451,5 @@ type Withdraw implements Transaction @entity {
   amount: BigDecimal!
 
   " Amount of token withdrawn in USD "
-  amountUSD: BigDecimal
+  amountUSD: BigDecimal!
 }
