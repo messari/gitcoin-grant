@@ -68,9 +68,9 @@ interface Protocol {
 
   type: ProtocolType!
 
-  usageMetrics: [UsageMetricsDailySnapshot]! @derivedFrom(field: "protocol")
+  usageMetrics: [UsageMetricsDailySnapshot!]! @derivedFrom(field: "protocol")
 
-  financialMetrics: [FinancialsDailySnapshot]! @derivedFrom(field: "protocol")
+  financialMetrics: [FinancialsDailySnapshot!]! @derivedFrom(field: "protocol")
 }
 
 type YieldAggregator implements Protocol @entity {
@@ -87,14 +87,14 @@ type YieldAggregator implements Protocol @entity {
 
   type: ProtocolType!
 
-  usageMetrics: [UsageMetricsDailySnapshot]! @derivedFrom(field: "protocol")
+  usageMetrics: [UsageMetricsDailySnapshot!]! @derivedFrom(field: "protocol")
 
-  financialMetrics: [FinancialsDailySnapshot]! @derivedFrom(field: "protocol")
+  financialMetrics: [FinancialsDailySnapshot!]! @derivedFrom(field: "protocol")
 
   ##### Yield-Specific #####
-
+  
   " All vaults that belong to this protocol "
-  vaults: [Vaults!]! @derivedFrom(field: "protocol")
+  vaults: [Vault!]! @derivedFrom(field: "protocol")
 }
 
 ###############################
@@ -266,21 +266,24 @@ enum VaultFeeType {
 }
 
 type VaultFee @entity {
+  id: ID!
+
   feePercentage: BigDecimal!
+
   feeType: VaultFeeType!
 }
 
-type Vault implements Pool @entity {
+type Vault @entity {
   " Smart contract address of the vault "
   id: ID!
 
-  protocol: Protocol!
+  protocol: YieldAggregator!
 
   # Generally protocols accept one or multiple tokens and mint tokens to the depositor to track ownership
   # Some protocols reward DAO tokens or other incentivisation tokens to holders of LP tokens
   # Some protocols don't mint any tokens to track ownership, in that case outputToken is null 
   # and inputToken balances are used to calculate returns
-
+  
   " Tokens that need to be deposited to take a position in protocol. e.g. WETH and USDC to deposit into the WETH-USDC pool "
   inputTokens: [Token!]!
 
@@ -293,6 +296,9 @@ type Vault implements Pool @entity {
   ##### Quantitative Data #####
 
   totalValueLockedUSD: BigDecimal!
+
+  " Total volume in USD "
+  totalVolumeUSD: BigDecimal!
 
   " Amount of input tokens in the vault. The ordering should be the same as the vault's `inputTokens` field. "
   inputTokenBalances: [BigDecimal!]!
@@ -312,18 +318,18 @@ type Vault implements Pool @entity {
   ##### Yield-Specific #####
 
   name: String
-
+  
   symbol: String
 
   depositLimit: BigInt!
 
-  fees: [VaultFee]!
+  fees: [VaultFee!]!
 
   " Vault snapshots "
   snapshots: [VaultDailySnapshot!]! @derivedFrom(field: "vault")
 }
 
-type VaultDailySnapshot implements PoolDailySnapshot @entity {
+type VaultDailySnapshot @entity {
   " { Smart contract address of the vault }-{ # of days since Unix epoch time } "
   id: ID!
 
