@@ -30,7 +30,7 @@ type Token @entity {
   " Mirrored from the smart contract "
   name: String!
   symbol: String!
-  decimals: BigInt!
+  decimals: Int!
 }
 
 enum RewardTokenType {
@@ -45,7 +45,7 @@ type RewardToken @entity {
   " Mirrored from the smart contract "
   name: String!
   symbol: String!
-  decimals: BigInt!
+  decimals: Int!
 
   type: RewardTokenType
 }
@@ -315,6 +315,9 @@ type Vault @entity {
   " Creation block number "
   createdBlockNumber: BigInt!
 
+  " Vault snapshots "
+  snapshots: [VaultDailySnapshot!]! @derivedFrom(field: "vault")
+
   ##### Yield-Specific #####
 
   name: String
@@ -325,8 +328,9 @@ type Vault @entity {
 
   fees: [VaultFee!]!
 
-  " Vault snapshots "
-  snapshots: [VaultDailySnapshot!]! @derivedFrom(field: "vault")
+  deposits: [Deposit!]! @derivedFrom(field: "vault")
+
+  withdraws: [Withdraw!]! @derivedFrom(field: "vault")
 }
 
 type VaultDailySnapshot @entity {
@@ -425,6 +429,11 @@ type Deposit implements Transaction @entity {
 
   " Amount of token deposited in USD "
   amountUSD: BigDecimal!
+
+  ##### Yield-Specific #####
+
+  " The vault involving this transaction "
+  vault: Vault!
 }
 
 type Withdraw implements Transaction @entity {
@@ -458,4 +467,9 @@ type Withdraw implements Transaction @entity {
 
   " Amount of token withdrawn in USD "
   amountUSD: BigDecimal!
+
+  ##### Yield-Specific #####
+
+  " The vault involving this transaction "
+  vault: Vault!
 }
